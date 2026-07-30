@@ -1,0 +1,10 @@
+[package]
+org = "zed-pkg-test"
+name = "python-lib"
+version = "1.0.0"
+description = "A tiny Python package sourced via zed (complements pip/PyPI)."
+license = "MIT"
+
+[package.repository]
+vcs = "git"
+url = "https://github.com/zed-pkg-test/python-lib"

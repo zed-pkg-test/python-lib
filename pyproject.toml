@@ -1,0 +1,20 @@
+[project]
+name = "zed-pkg-test-python-lib"
+version = "1.0.0"
+description = "A tiny Python package sourced via zed (complements pip/PyPI)."
+license = { text = "MIT" }
+requires-python = ">=3.9"
+readme = "README.md"
+
+[project.urls]
+Repository = "https://github.com/zed-pkg-test/python-lib"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# A flat layout on purpose: `zed install` materializes this package's source
+# tree at [install].dir, and the python adapter puts *that* directory on the
+# import path -- so `python_lib` has to sit at the tree root, not under src/.
+[tool.setuptools.packages.find]
+include = ["python_lib*"]
