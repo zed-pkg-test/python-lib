@@ -18,7 +18,7 @@ concurrency:
 env:
   PRODUCT_MAIN: 9b8e5f3d3b98845436899b9a8645f3ce19689f85
   REVIEWED_FEATURE: c5ed46eb80c348aa5b766e9b00d7c50bfb94e0ab
-  MATERIALIZER: 0fbb73022469f8cf71cdc18f3d73675b61ee1cd3
+  MATERIALIZER: ccb079d678522a76b753adbefb5e37be73d5b294
 
 jobs:
   validate:
@@ -154,7 +154,7 @@ jobs:
                       'schema': 'zed.global-packages-materialization/v1',
                       'product_base': '9b8e5f3d3b98845436899b9a8645f3ce19689f85',
                       'reviewed_feature': 'c5ed46eb80c348aa5b766e9b00d7c50bfb94e0ab',
-                      'materializer': '0fbb73022469f8cf71cdc18f3d73675b61ee1cd3',
+                      'materializer': 'ccb079d678522a76b753adbefb5e37be73d5b294',
                       'changed_files': names,
                   },
                   sort_keys=True,
