@@ -18,7 +18,7 @@ concurrency:
 env:
   PRODUCT_MAIN: 9b8e5f3d3b98845436899b9a8645f3ce19689f85
   REVIEWED_FEATURE: c5ed46eb80c348aa5b766e9b00d7c50bfb94e0ab
-  MATERIALIZER: 432cc4ae6d643b9e66cdd778eb75838b6fd766d8
+  MATERIALIZER: d1be19e3020b444859dadbba8ee322e813cbdef7
 
 jobs:
   validate:
@@ -66,10 +66,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for value in PRODUCT_MAIN REVIEWED_FEATURE MATERIALIZER; do
-            test "${#value}" -gt 0
-            test "${#value}" -eq "${#value}"
-          done
           test "${#PRODUCT_MAIN}" -eq 40
           test "${#REVIEWED_FEATURE}" -eq 40
           test "${#MATERIALIZER}" -eq 40
@@ -106,10 +102,15 @@ jobs:
             src/global.rs \
             tests/global_cli.rs
 
-          python3 -m py_compile helper/scripts/materialize_global_packages_current_main.py
+          python3 -m py_compile \
+            helper/scripts/materialize_global_packages_current_main.py \
+            helper/scripts/fix_global_packages_materialization.py
           python3 helper/scripts/materialize_global_packages_current_main.py \
             --product product \
             --feature feature
+          python3 helper/scripts/fix_global_packages_materialization.py \
+            --product product
+          cargo fmt --manifest-path product/Cargo.toml --all
 
       - name: Run focused and complete product gates
         working-directory: product
@@ -153,7 +154,7 @@ jobs:
                       'schema': 'zed.global-packages-materialization/v1',
                       'product_base': '9b8e5f3d3b98845436899b9a8645f3ce19689f85',
                       'reviewed_feature': 'c5ed46eb80c348aa5b766e9b00d7c50bfb94e0ab',
-                      'materializer': '432cc4ae6d643b9e66cdd778eb75838b6fd766d8',
+                      'materializer': 'd1be19e3020b444859dadbba8ee322e813cbdef7',
                       'changed_files': names,
                   },
                   sort_keys=True,
