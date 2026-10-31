@@ -1,0 +1,136 @@
+name: Synthetic native Git atomic lease probe
+on:
+  push:
+    branches: [ci/synthetic-native-git-lease-probe-20261030]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  native-git-lease:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout local test repository only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Exercise native two-ref atomic compare-and-delete on synthetic refs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "zed-pkg-test/python-lib"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          command -v git
+          command -v gh
+          # This credential is scoped to the local Actions repository and is
+          # never copied to another organization or committed to a tree.
+          gh auth setup-git --hostname github.com
+          remote="https://github.com/$GITHUB_REPOSITORY.git"
+          root="ci/sourcefree-lease-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          a="refs/heads/$root-a"
+          b="refs/heads/$root-b"
+          head="$(git rev-parse HEAD)"
+          moved=""
+          get_sha() {
+            git ls-remote "$remote" "$1" | awk '{print $1}'
+          }
+          cleanup() {
+            # Synthetic test refs only. Never blindly delete an unexpected SHA.
+            set +e
+            for ref in "$a" "$b"; do
+              now="$(get_sha "$ref")"
+              if [[ -z "$now" ]]; then continue; fi
+              if [[ "$now" == "$head" || ( -n "$moved" && "$now" == "$moved" ) ]]; then
+                git push --force-with-lease="$ref:$now" "$remote" ":$ref" >/dev/null 2>&1
+              else
+                echo "SYNTHETIC_REF_CLEANUP_REQUIRES_REVIEW=$ref" >&2
+              fi
+            done
+          }
+          trap cleanup EXIT
+          test -z "$(get_sha "$a")"
+          test -z "$(get_sha "$b")"
+          git push --atomic "$remote" "HEAD:$a" "HEAD:$b" >/dev/null
+          test "$(get_sha "$a")" = "$head"
+          test "$(get_sha "$b")" = "$head"
+          echo "EXACT_TWO_REF_INITIALIZATION=PASS"
+
+          # Another writer moves B after the first read. The stale deletion
+          # must fail atomically, leaving A untouched and B at the new SHA.
+          export GIT_AUTHOR_NAME="Synthetic Git Probe"
+          export GIT_AUTHOR_EMAIL="synthetic-atomic-probe@example.invalid"
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          moved="$(printf 'source-free synthetic lease mutation\n' | git commit-tree 'HEAD^{tree}' -p HEAD)"
+          git push --force-with-lease="$b:$head" "$remote" "$moved:$b" >/dev/null
+          test "$(get_sha "$b")" = "$moved"
+          if git push --atomic \
+              --force-with-lease="$a:$head" \
+              --force-with-lease="$b:$head" \
+              "$remote" ":$a" ":$b" >/dev/null 2>&1; then
+            echo "CRITICAL: stale lease deleted synthetic refs" >&2
+            exit 1
+          fi
+          test "$(get_sha "$a")" = "$head"
+          test "$(get_sha "$b")" = "$moved"
+          echo "STALE_LEASE_ATOMIC_ABORT=PASS"
+
+          # Correct leases must then delete BOTH refs as one transaction.
+          git push --atomic \
+              --force-with-lease="$a:$head" \
+              --force-with-lease="$b:$moved" \
+              "$remote" ":$a" ":$b" >/dev/null
+          test -z "$(get_sha "$a")"
+          test -z "$(get_sha "$b")"
+          echo "TWO_REF_ATOMIC_DELETE=PASS"
+          # An authorization ref absent during pre-read may appear before
+          # the push. Its empty expected-old lease must abort BOTH deletions.
+          git push --force-with-lease="$a:" "$remote" "HEAD:$a" >/dev/null
+          test -z "$(get_sha "$b")"
+          git push --force-with-lease="$b:" "$remote" "HEAD:$b" >/dev/null
+          if git push --atomic \
+              --force-with-lease="$a:$head" \
+              --force-with-lease="$b:" \
+              "$remote" ":$a" ":$b" >/dev/null 2>&1; then
+            echo "CRITICAL: newly created marker escaped absent-ref lease" >&2
+            exit 1
+          fi
+          test "$(get_sha "$a")" = "$head"
+          test "$(get_sha "$b")" = "$head"
+          echo "CONCURRENT_CREATION_ATOMIC_ABORT=PASS"
+          git push --atomic \
+              --force-with-lease="$a:$head" \
+              --force-with-lease="$b:$head" \
+              "$remote" ":$a" ":$b" >/dev/null
+          test -z "$(get_sha "$a")"
+          test -z "$(get_sha "$b")"
+
+          # Deliberate ABA demonstration: head -> other -> head. Git's SHA
+          # lease accepts the original hash after intervening changes.
+          # This is a confirmed LIMITATION, not a security PASS.
+          git push --atomic "$remote" "HEAD:$a" "HEAD:$b" >/dev/null
+          git push --force-with-lease="$b:$head" "$remote" "$moved:$b" >/dev/null
+          git push --force-with-lease="$b:$moved" "$remote" "$head:$b" >/dev/null
+          test "$(get_sha "$a")" = "$head"
+          test "$(get_sha "$b")" = "$head"
+          git push --atomic \
+              --force-with-lease="$a:$head" \
+              --force-with-lease="$b:$head" \
+              "$remote" ":$a" ":$b" >/dev/null
+          test -z "$(get_sha "$a")"
+          test -z "$(get_sha "$b")"
+          echo "GITHUB_ABA_NOT_DETECTED_BY_SHA_LEASE=CONFIRMED_LIMITATION"
+          # A ref deletion is not an object erasure guarantee. Reveal only
+          # this newly synthesized, source-free commit for later read-only API
+          # reachability checks, never a private source object.
+          echo "SYNTHETIC_UNREFERENCED_COMMIT_SHA=$moved"
+          echo "GITHUB_PROVIDER_ATOMIC_LEASE_PROBE=PASS"
+      - name: Delimit evidence and residual ABA risk
+        run: |
+          echo 'Only two synthetic same-repository Git ref names and synthetic commit were used.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No source from another repository, cross-organization token, or publisher was involved.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Exact-SHA force-with-lease does not detect ABA when a ref moves away and returns to the expected SHA.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This is a provider transport probe, not private export authorization or retention remediation.' >> "$GITHUB_STEP_SUMMARY"

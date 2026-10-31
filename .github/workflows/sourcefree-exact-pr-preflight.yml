@@ -1,0 +1,77 @@
+name: Synthetic exact-head PR admission proof
+on:
+  push:
+    branches: [ci/synthetic-native-git-lease-probe-20261030]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  source-free-head-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Verify GitHub API PR head matches exact workflow commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'zed-pkg-test/python-lib'
+          expected_sha="$GITHUB_SHA"
+          [[ "$expected_sha" =~ ^[0-9a-f]{40}$ ]]
+          command -v gh
+          receipt="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/3" \
+            --jq '[.head.sha, .head.repo.full_name, .state, (.head.repo.private|tostring)] | @tsv')"
+          IFS=$'\t' read -r actual_sha actual_repo state private <<< "$receipt"
+          test "$actual_sha" = "$expected_sha"
+          test "$actual_repo" = "$GITHUB_REPOSITORY"
+          test "$state" = 'open'
+          test "$private" = 'false'
+          if [[ "$actual_sha" == 0000000000000000000000000000000000000000 ]]; then
+            echo "CRITICAL: invalid source commit admitted" >&2
+            exit 1
+          fi
+          echo 'SOURCEFREE_EXACT_PR_SHA_ADMISSION=PASS'
+      - name: Checkout pinned exact public source-free commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Verify checked out tree and no persisted checkout credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --quiet --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test -f .github/workflows/synthetic-native-git-lease-probe.yml
+          test -f .github/workflows/sourcefree-exact-pr-preflight.yml
+          echo "SOURCEFREE_EXACT_TREE_SHA=$(git rev-parse 'HEAD^{tree}')"
+          echo 'SOURCEFREE_EXACT_CHECKOUT=PASS'
+      - name: Verify source-free fail-closed negative gates against live GitHub
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "zed-pkg-test/python-lib"
+          protected_main="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protected')"
+          test "$protected_main" = "false"
+          echo "UNPROTECTED_MAIN_WOULD_BE_DENIED=PASS"
+          last_review="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/3/reviews?per_page=100" \
+            --jq 'if length >= 100 then "TOO_MANY_REVIEWS" else
+              ([.[] | select(.user.login == "ORESoftware" and .submitted_at != null)]
+               | sort_by(.submitted_at) | last // {}
+               | [(.state // ""), (.commit_id // ""), (.user.id // 0 | tostring)] | @tsv)
+            end')"
+          IFS=$'\t' read -r review_state review_commit reviewer_id <<< "$last_review"
+          test "$review_state" != "APPROVED"
+          echo "UNREVIEWED_PR_WOULD_BE_DENIED=PASS"
+          echo "SOURCEFREE_PROTECTED_MAIN_AND_REVIEW_NEGATIVE_PROBE=PASS"
+      - name: Scope result
+        run: |
+          echo 'Source-free GitHub PR identity/checkout test only.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This does not verify any private Oreslang code, self-hosted runner, or real guest execution.' >> "$GITHUB_STEP_SUMMARY"
