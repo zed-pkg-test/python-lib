@@ -51,6 +51,31 @@ jobs:
           test -f .github/workflows/sourcefree-exact-pr-preflight.yml
           echo "SOURCEFREE_EXACT_TREE_SHA=$(git rev-parse 'HEAD^{tree}')"
           echo 'SOURCEFREE_EXACT_CHECKOUT=PASS'
+      - name: Verify source-free fail-closed negative gates against live GitHub
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "zed-pkg-test/python-lib"
+          protected_main="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protected')"
+          test "$protected_main" = "false"
+          echo "UNPROTECTED_MAIN_WOULD_BE_DENIED=PASS"
+          last_review="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/3/reviews?per_page=100" \
+            --jq 'if length >= 100 then "TOO_MANY_REVIEWS" else
+              ([.[] | select(.user.login == "ORESoftware" and .submitted_at != null)]
+               | sort_by(.submitted_at) | last // {}
+               | [(.state // ""), (.commit_id // ""), (.user.id // 0 | tostring)] | @tsv)
+            end')"
+          expected="APPROVED"
+          actual_state="${last_review%%
+        run: |
+          echo 'Source-free GitHub PR identity/checkout test only.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This does not verify any private Oreslang code, self-hosted runner, or real guest execution.' >> "$GITHUB_STEP_SUMMARY"
+\t'*}"
+          test "$actual_state" != "$expected"
+          echo "UNREVIEWED_PR_WOULD_BE_DENIED=PASS"
+          echo "SOURCEFREE_PROTECTED_MAIN_AND_REVIEW_NEGATIVE_PROBE=PASS"
       - name: Scope result
         run: |
           echo 'Source-free GitHub PR identity/checkout test only.' >> "$GITHUB_STEP_SUMMARY"
