@@ -123,6 +123,10 @@ jobs:
           test -z "$(get_sha "$a")"
           test -z "$(get_sha "$b")"
           echo "GITHUB_ABA_NOT_DETECTED_BY_SHA_LEASE=CONFIRMED_LIMITATION"
+          # A ref deletion is not an object erasure guarantee. Reveal only
+          # this newly synthesized, source-free commit for later read-only API
+          # reachability checks, never a private source object.
+          echo "SYNTHETIC_UNREFERENCED_COMMIT_SHA=$moved"
           echo "GITHUB_PROVIDER_ATOMIC_LEASE_PROBE=PASS"
       - name: Delimit evidence and residual ABA risk
         run: |
