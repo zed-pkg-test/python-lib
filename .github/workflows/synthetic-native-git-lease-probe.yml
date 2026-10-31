@@ -86,6 +86,43 @@ jobs:
           test -z "$(get_sha "$a")"
           test -z "$(get_sha "$b")"
           echo "TWO_REF_ATOMIC_DELETE=PASS"
+          # An authorization ref absent during pre-read may appear before
+          # the push. Its empty expected-old lease must abort BOTH deletions.
+          git push --force-with-lease="$a:" "$remote" "HEAD:$a" >/dev/null
+          test -z "$(get_sha "$b")"
+          git push --force-with-lease="$b:" "$remote" "HEAD:$b" >/dev/null
+          if git push --atomic \
+              --force-with-lease="$a:$head" \
+              --force-with-lease="$b:" \
+              "$remote" ":$a" ":$b" >/dev/null 2>&1; then
+            echo "CRITICAL: newly created marker escaped absent-ref lease" >&2
+            exit 1
+          fi
+          test "$(get_sha "$a")" = "$head"
+          test "$(get_sha "$b")" = "$head"
+          echo "CONCURRENT_CREATION_ATOMIC_ABORT=PASS"
+          git push --atomic \
+              --force-with-lease="$a:$head" \
+              --force-with-lease="$b:$head" \
+              "$remote" ":$a" ":$b" >/dev/null
+          test -z "$(get_sha "$a")"
+          test -z "$(get_sha "$b")"
+
+          # Deliberate ABA demonstration: head -> other -> head. Git's SHA
+          # lease accepts the original hash after intervening changes.
+          # This is a confirmed LIMITATION, not a security PASS.
+          git push --atomic "$remote" "HEAD:$a" "HEAD:$b" >/dev/null
+          git push --force-with-lease="$b:$head" "$remote" "$moved:$b" >/dev/null
+          git push --force-with-lease="$b:$moved" "$remote" "$head:$b" >/dev/null
+          test "$(get_sha "$a")" = "$head"
+          test "$(get_sha "$b")" = "$head"
+          git push --atomic \
+              --force-with-lease="$a:$head" \
+              --force-with-lease="$b:$head" \
+              "$remote" ":$a" ":$b" >/dev/null
+          test -z "$(get_sha "$a")"
+          test -z "$(get_sha "$b")"
+          echo "GITHUB_ABA_NOT_DETECTED_BY_SHA_LEASE=CONFIRMED_LIMITATION"
           echo "GITHUB_PROVIDER_ATOMIC_LEASE_PROBE=PASS"
       - name: Delimit evidence and residual ABA risk
         run: |
