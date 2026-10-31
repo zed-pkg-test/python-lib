@@ -67,13 +67,8 @@ jobs:
                | sort_by(.submitted_at) | last // {}
                | [(.state // ""), (.commit_id // ""), (.user.id // 0 | tostring)] | @tsv)
             end')"
-          expected="APPROVED"
-          actual_state="${last_review%%
-        run: |
-          echo 'Source-free GitHub PR identity/checkout test only.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'This does not verify any private Oreslang code, self-hosted runner, or real guest execution.' >> "$GITHUB_STEP_SUMMARY"
-\t'*}"
-          test "$actual_state" != "$expected"
+          IFS=$'\t' read -r review_state review_commit reviewer_id <<< "$last_review"
+          test "$review_state" != "APPROVED"
           echo "UNREVIEWED_PR_WOULD_BE_DENIED=PASS"
           echo "SOURCEFREE_PROTECTED_MAIN_AND_REVIEW_NEGATIVE_PROBE=PASS"
       - name: Scope result
